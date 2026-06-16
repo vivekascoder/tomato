@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarDays, CheckCircle2, Clock3, Edit3, FileText, ListTodo, Moon, RefreshCw, Save, Sun } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, Edit3, FileText, Moon, RefreshCw, Save, Sun } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
@@ -240,7 +240,7 @@ export default function App() {
       >
         {/* Tomato Screen */}
         <div className="flex h-full w-1/2 flex-col gap-3 overflow-y-auto p-3">
-          <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b bg-background/95 px-3 py-3 shadow-sm backdrop-blur">
+          <header className="flex items-center justify-between gap-3 border-b bg-background px-3 py-3">
             <div className="flex min-w-0 flex-col gap-1">
               <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
             </div>
@@ -319,11 +319,11 @@ export default function App() {
             type="button"
             whileHover={{ y: -1 }}
             whileTap={{ scale: 0.98 }}
-            className="mx-auto inline-flex w-fit items-center gap-1 border-b border-dotted border-muted-foreground text-sm text-muted-foreground hover:text-foreground"
+            className="mx-auto inline-flex w-fit items-center gap-2 border-b border-dashed border-muted-foreground pb-0.5 text-sm text-muted-foreground hover:text-foreground"
             onClick={() => setShowBlocks(true)}
           >
-            <ListTodo data-icon="inline-start" />
             View {sessions.length} work blocks
+            <ArrowRight data-icon="inline-start" className="size-3.5" />
           </motion.button>
         </div>
 
