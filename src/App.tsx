@@ -23,13 +23,6 @@ import {
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle
-} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LogData, SessionAnnotation, WorkSession } from "./types";
 
@@ -126,7 +119,7 @@ export default function App() {
   const [drafts, setDrafts] = useState<Record<string, SessionAnnotation>>({});
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [showBlocks, setShowBlocks] = useState(false);
   const [sessionFilter, setSessionFilter] = useState<SessionFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,132 +232,138 @@ export default function App() {
   }
 
   return (
-    <main className="mx-auto flex min-h-svh w-full max-w-[430px] flex-col gap-3 bg-background p-3 text-foreground">
-      <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b bg-background/95 px-3 py-3 shadow-sm backdrop-blur">
-        <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
-        </div>
-        <div className="flex shrink-0 gap-1">
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={iconButtonClass}
-            onClick={() => void window.pomodoro.showLogFile()}
-            title="Show log file"
-          >
-            <FileText data-icon="inline-start" />
-          </Button>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={iconButtonClass}
-            onClick={toggleTheme}
-            title="Toggle theme"
-          >
-            {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
-          </Button>
-        </div>
-      </header>
-
-      {error ? (
-        <Card size="sm" className="border-destructive/30 bg-destructive/5">
-          <CardContent className="text-sm text-destructive">{error}</CardContent>
-        </Card>
-      ) : null}
-
-      <section className="grid grid-cols-2 gap-2" aria-label="Pomodoro summary">
-        <Metric icon={<Clock3 />} label="Work" value={formatDuration(summary.totalSeconds)} />
-        <Metric icon={<CheckCircle2 />} label="Done" value={`${summary.completed}`} />
-        <Metric icon={<RefreshCw />} label="Stopped" value={`${summary.stopped}`} />
-        <Metric icon={<CalendarDays />} label="Days" value={`${summary.activeDays}`} />
-      </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Daily Focus</CardTitle>
-          <CardDescription>{sessions.length} blocks from TomatoBar</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-[190px] w-full rounded-lg" />
-              <Skeleton className="h-4 w-2/3" />
-            </div>
-          ) : chartData.length === 0 ? (
-            <Empty className="min-h-[190px]">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Clock3 />
-                </EmptyMedia>
-                <EmptyTitle>No blocks yet</EmptyTitle>
-                <EmptyDescription>Start a TomatoBar work timer to populate this chart.</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <ChartContainer config={chartConfig} className="h-[220px] w-full">
-              <BarChart accessibilityLayer data={chartData}>
-                <CartesianGrid vertical={false} />
-                <XAxis dataKey="day" tickLine={false} tickMargin={8} axisLine={false} />
-                <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                <Bar dataKey="completed" fill="var(--color-completed)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ChartContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      <motion.button
-        type="button"
-        whileHover={{ y: -1 }}
-        whileTap={{ scale: 0.98 }}
-        className="mx-auto inline-flex w-fit items-center gap-1 border-b border-dotted border-muted-foreground text-sm text-muted-foreground hover:text-foreground"
-        onClick={() => setIsSheetOpen(true)}
+    <main className="relative h-svh w-full overflow-hidden bg-background text-foreground">
+      <motion.div
+        className="flex h-full w-[200%]"
+        animate={{ x: showBlocks ? "-50%" : "0%" }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
       >
-        <ListTodo data-icon="inline-start" />
-        View {sessions.length} work blocks
-      </motion.button>
+        {/* Tomato Screen */}
+        <div className="flex h-full w-1/2 flex-col gap-3 overflow-y-auto p-3">
+          <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b bg-background/95 px-3 py-3 shadow-sm backdrop-blur">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
+            </div>
+            <div className="flex shrink-0 gap-1">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className={iconButtonClass}
+                onClick={() => void window.pomodoro.showLogFile()}
+                title="Show log file"
+              >
+                <FileText data-icon="inline-start" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className={iconButtonClass}
+                onClick={toggleTheme}
+                title="Toggle theme"
+              >
+                {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
+              </Button>
+            </div>
+          </header>
 
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent
-          side="right"
-          showCloseButton={false}
-          className="!inset-0 !h-full !w-full !max-w-none gap-1 overflow-y-auto !border-l-0 bg-background p-2 duration-100 sm:!max-w-none"
-        >
-          <SheetHeader className="sticky top-0 z-10 -mx-2 -mt-2 flex-row items-center gap-3 border-b bg-popover/95 px-2 py-2 text-left shadow-sm backdrop-blur">
-            <Button type="button" size="icon" variant="ghost" className={iconButtonClass} onClick={() => setIsSheetOpen(false)} title="Back">
+          {error ? (
+            <Card size="sm" className="border-destructive/30 bg-destructive/5">
+              <CardContent className="text-sm text-destructive">{error}</CardContent>
+            </Card>
+          ) : null}
+
+          <section className="grid grid-cols-2 gap-2" aria-label="Pomodoro summary">
+            <Metric icon={<Clock3 />} label="Work" value={formatDuration(summary.totalSeconds)} />
+            <Metric icon={<CheckCircle2 />} label="Done" value={`${summary.completed}`} />
+            <Metric icon={<RefreshCw />} label="Stopped" value={`${summary.stopped}`} />
+            <Metric icon={<CalendarDays />} label="Days" value={`${summary.activeDays}`} />
+          </section>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Daily Focus</CardTitle>
+              <CardDescription>{sessions.length} blocks from TomatoBar</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex flex-col gap-2">
+                  <Skeleton className="h-[190px] w-full rounded-lg" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              ) : chartData.length === 0 ? (
+                <Empty className="min-h-[190px]">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <Clock3 />
+                    </EmptyMedia>
+                    <EmptyTitle>No blocks yet</EmptyTitle>
+                    <EmptyDescription>Start a TomatoBar work timer to populate this chart.</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ) : (
+                <ChartContainer config={chartConfig} className="h-[220px] w-full">
+                  <BarChart accessibilityLayer data={chartData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="day" tickLine={false} tickMargin={8} axisLine={false} />
+                    <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
+                    <Bar dataKey="completed" fill="var(--color-completed)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <motion.button
+            type="button"
+            whileHover={{ y: -1 }}
+            whileTap={{ scale: 0.98 }}
+            className="mx-auto inline-flex w-fit items-center gap-1 border-b border-dotted border-muted-foreground text-sm text-muted-foreground hover:text-foreground"
+            onClick={() => setShowBlocks(true)}
+          >
+            <ListTodo data-icon="inline-start" />
+            View {sessions.length} work blocks
+          </motion.button>
+        </div>
+
+        {/* Work Blocks Screen */}
+        <div className="flex h-full w-1/2 flex-col overflow-y-auto bg-background">
+          <header className="sticky top-0 z-10 flex flex-row items-center gap-3 border-b bg-popover/95 px-3 py-3 shadow-sm backdrop-blur">
+            <Button type="button" size="icon" variant="ghost" className={iconButtonClass} onClick={() => setShowBlocks(false)} title="Back">
               <ArrowLeft data-icon="inline-start" />
             </Button>
             <div className="min-w-0">
-              <SheetTitle className="truncate text-xl">Work Blocks</SheetTitle>
-              <SheetDescription className="truncate text-xs">
+              <h2 className="truncate font-heading text-xl font-semibold">Work Blocks</h2>
+              <p className="truncate text-xs text-muted-foreground">
                 {filteredSessions.length} of {sessions.length} Pomodoro blocks
-              </SheetDescription>
+              </p>
             </div>
-          </SheetHeader>
+          </header>
 
-          <FilterBadges
-            activeFilter={sessionFilter}
-            completedCount={summary.completed}
-            stoppedCount={summary.stopped}
-            totalCount={sessions.length}
-            onChange={updateSessionFilter}
-          />
+          <div className="flex flex-col gap-2 px-3 pb-3 pt-2">
+            <FilterBadges
+              activeFilter={sessionFilter}
+              completedCount={summary.completed}
+              stoppedCount={summary.stopped}
+              totalCount={sessions.length}
+              onChange={updateSessionFilter}
+            />
 
-          <SessionList
-            sessions={filteredSessions}
-            drafts={drafts}
-            saveStates={saveStates}
-            inputRefs={inputRefs}
-            activeFilter={sessionFilter}
-            onFilterChange={updateSessionFilter}
-            updateDraft={updateDraft}
-            saveSession={saveSession}
-            editSession={editSession}
-          />
-        </SheetContent>
-      </Sheet>
+            <SessionList
+              sessions={filteredSessions}
+              drafts={drafts}
+              saveStates={saveStates}
+              inputRefs={inputRefs}
+              activeFilter={sessionFilter}
+              onFilterChange={updateSessionFilter}
+              updateDraft={updateDraft}
+              saveSession={saveSession}
+              editSession={editSession}
+            />
+          </div>
+        </div>
+      </motion.div>
     </main>
   );
 }
