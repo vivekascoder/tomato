@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, Edit3, FileText, Moon, RefreshCw, Save, Sun } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, FileText, Moon, Pencil, RefreshCw, Save, Sun } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
@@ -225,12 +225,6 @@ export default function App() {
     }
   }
 
-  function editSession(sessionId: string) {
-    const input = inputRefs.current[sessionId];
-    input?.focus();
-    input?.select();
-  }
-
   return (
     <main className="relative h-svh w-full overflow-hidden bg-background text-foreground">
       <motion.div
@@ -359,7 +353,6 @@ export default function App() {
               onFilterChange={updateSessionFilter}
               updateDraft={updateDraft}
               saveSession={saveSession}
-              editSession={editSession}
             />
           </div>
         </div>
@@ -376,8 +369,7 @@ function SessionList({
   activeFilter,
   onFilterChange,
   updateDraft,
-  saveSession,
-  editSession
+  saveSession
 }: {
   sessions: WorkSession[];
   drafts: Record<string, SessionAnnotation>;
@@ -387,8 +379,9 @@ function SessionList({
   onFilterChange: (filter: SessionFilter) => void;
   updateDraft: (sessionId: string, title: string) => void;
   saveSession: (sessionId: string) => Promise<void>;
-  editSession: (sessionId: string) => void;
 }) {
+  const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
+
   if (sessions.length === 0) {
     return (
       <Empty className="min-h-[360px]">
@@ -403,19 +396,44 @@ function SessionList({
     );
   }
 
+  function enterEdit(sessionId: string) {
+    setEditingIds((prev) => new Set(prev).add(sessionId));
+    setTimeout(() => {
+      const input = inputRefs.current[sessionId];
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }, 0);
+  }
+
+  async function handleSave(sessionId: string) {
+    await saveSession(sessionId);
+    setEditingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(sessionId);
+      return next;
+    });
+  }
+
   return (
     <motion.section
       initial="hidden"
       animate="show"
       variants={{ hidden: {}, show: { transition: { staggerChildren: 0.035 } } }}
-      className="flex flex-col gap-2"
+      className="flex flex-col gap-3"
     >
       {sessions.map((session) => {
         const draft = drafts[session.id] ?? { title: "" };
         const saveState = saveStates[session.id] ?? "idle";
-        const hasSavedTitle = session.title.trim().length > 0 && saveState !== "dirty" && saveState !== "saving" && saveState !== "error";
-        const ActionIcon = hasSavedTitle ? Edit3 : Save;
-        const actionTitle = hasSavedTitle ? "Edit title" : "Save title";
+        const wasLoadedWithTitle = session.title.trim().length > 0;
+        const isEditing = editingIds.has(session.id);
+        const shouldShowInput = !wasLoadedWithTitle || isEditing;
+
+        const displayTitle =
+          saveState === "saved" || saveState === "saving" || saveState === "dirty"
+            ? draft.title
+            : session.title;
 
         return (
           <motion.div
@@ -429,49 +447,87 @@ function SessionList({
             <Card size="sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <span>{formatRelativeTime(session.start)} ({formatDuration(session.durationSeconds)})</span>
-                  <button type="button" onClick={() => onFilterChange(activeFilter === session.result ? "all" : session.result)}>
+                  <span>
+                    {formatRelativeTime(session.start)} ({formatDuration(session.durationSeconds)})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onFilterChange(activeFilter === session.result ? "all" : session.result)}
+                  >
                     <Badge variant={session.result === "completed" ? "default" : "secondary"}>
                       {session.result === "completed" ? "Done" : "Stopped"}
                     </Badge>
                   </button>
                 </CardTitle>
                 <CardAction>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className={iconButtonClass}
-                    disabled={saveState === "saving"}
-                    onClick={() => (hasSavedTitle ? editSession(session.id) : void saveSession(session.id))}
-                    title={actionTitle}
-                  >
-                    <ActionIcon data-icon="inline-start" />
-                  </Button>
+                  {shouldShowInput ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className={iconButtonClass}
+                      disabled={saveState === "saving"}
+                      onClick={() => void handleSave(session.id)}
+                      title="Save title"
+                    >
+                      <Save data-icon="inline-start" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className={iconButtonClass}
+                      onClick={() => enterEdit(session.id)}
+                      title="Edit title"
+                    >
+                      <Pencil data-icon="inline-start" />
+                    </Button>
+                  )}
                 </CardAction>
               </CardHeader>
+
               <CardContent className="-mt-2">
-                <FieldGroup>
-                  <Field>
-                    <Input
-                      id={`title-${session.id}`}
-                      ref={(element) => {
-                        inputRefs.current[session.id] = element;
-                      }}
-                      value={draft.title}
-                      placeholder="What did this block move?"
-                      className="border-transparent bg-card px-0 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-card"
-                      onChange={(event) => updateDraft(session.id, event.target.value)}
-                    />
-                  </Field>
-                </FieldGroup>
+                {shouldShowInput ? (
+                  <FieldGroup>
+                    <Field>
+                      <Input
+                        id={`title-${session.id}`}
+                        ref={(element) => {
+                          inputRefs.current[session.id] = element;
+                        }}
+                        value={draft.title}
+                        placeholder="What did this block move?"
+                        className="border-transparent bg-card px-0 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-card"
+                        onChange={(event) => updateDraft(session.id, event.target.value)}
+                      />
+                    </Field>
+                  </FieldGroup>
+                ) : (
+                  <p
+                    className="cursor-text px-0 text-base font-medium text-foreground"
+                    onClick={() => enterEdit(session.id)}
+                  >
+                    {displayTitle}
+                  </p>
+                )}
               </CardContent>
+
               <CardFooter className="justify-between gap-2">
-                <span className="truncate text-xs text-muted-foreground" title={timeFormatter.format(new Date(session.start * 1000))}>
+                <span
+                  className="truncate text-xs text-muted-foreground"
+                  title={timeFormatter.format(new Date(session.start * 1000))}
+                >
                   {compactStartFormatter.format(new Date(session.start * 1000))}
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
-                  {saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : saveState === "error" ? "Retry" : ""}
+                  {saveState === "saving"
+                    ? "Saving"
+                    : saveState === "saved"
+                      ? "Saved"
+                      : saveState === "error"
+                        ? "Retry"
+                        : ""}
                 </span>
               </CardFooter>
             </Card>
