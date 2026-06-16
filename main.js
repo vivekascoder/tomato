@@ -84,11 +84,14 @@ async function getLogData() {
 
 const createWindow = () => {
   const win = new BrowserWindow({
-    width: 430,
-    height: 860,
+    width: 390,
+    height: 780,
     minWidth: 390,
     minHeight: 780,
-    title: "Pomodoro Visualizer",
+    maxWidth: 390,
+    maxHeight: 780,
+    resizable: false,
+    title: "🍅 Tomato",
     backgroundColor: "#fffaf3",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

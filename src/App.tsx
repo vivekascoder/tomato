@@ -1,5 +1,6 @@
-import { CalendarDays, CheckCircle2, Clock3, FileText, RefreshCw, Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, CalendarDays, CheckCircle2, Clock3, Edit3, FileText, ListTodo, Moon, RefreshCw, Save, Sun } from "lucide-react";
+import { motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
@@ -15,24 +16,46 @@ import {
 } from "@/components/ui/card";
 import {
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig
 } from "@/components/ui/chart";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LogData, SessionAnnotation, WorkSession } from "./types";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
+type SessionFilter = "all" | "completed" | "stopped";
+
+const iconButtonClass = "size-8 rounded-full border-0 p-2 shadow-none hover:bg-muted [&_svg]:size-3.5";
 
 const timeFormatter = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
   dateStyle: "medium",
   timeStyle: "short"
+});
+
+const compactStartFormatter = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata",
+  weekday: "short",
+  day: "2-digit",
+  month: "short",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true
+});
+
+const relativeFormatter = new Intl.RelativeTimeFormat("en", {
+  numeric: "auto"
 });
 
 const dayFormatter = new Intl.DateTimeFormat("en-IN", {
@@ -61,6 +84,17 @@ function formatDuration(seconds: number) {
   return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`;
 }
 
+function formatRelativeTime(timestamp: number) {
+  const diffSeconds = timestamp - Date.now() / 1000;
+  const absSeconds = Math.abs(diffSeconds);
+
+  if (absSeconds < 60) return relativeFormatter.format(Math.round(diffSeconds), "second");
+  if (absSeconds < 3600) return relativeFormatter.format(Math.round(diffSeconds / 60), "minute");
+  if (absSeconds < 86400) return relativeFormatter.format(Math.round(diffSeconds / 3600), "hour");
+  if (absSeconds < 604800) return relativeFormatter.format(Math.round(diffSeconds / 86400), "day");
+  return relativeFormatter.format(Math.round(diffSeconds / 604800), "week");
+}
+
 function dayKey(timestamp: number) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -71,17 +105,16 @@ function dayKey(timestamp: number) {
 }
 
 function buildChartData(sessions: WorkSession[]) {
-  const days = new Map<string, { day: string; completed: number; stopped: number }>();
+  const days = new Map<string, { day: string; completed: number }>();
 
-  for (const session of sessions) {
+  for (const session of sessions.filter((item) => item.result === "completed")) {
     const key = dayKey(session.start);
     const row = days.get(key) ?? {
       day: dayFormatter.format(new Date(session.start * 1000)),
-      completed: 0,
-      stopped: 0
+      completed: 0
     };
 
-    row[session.result] += Number((session.durationSeconds / 60).toFixed(2));
+    row.completed += Number((session.durationSeconds / 60).toFixed(2));
     days.set(key, row);
   }
 
@@ -92,11 +125,15 @@ export default function App() {
   const [data, setData] = useState<LogData | null>(null);
   const [drafts, setDrafts] = useState<Record<string, SessionAnnotation>>({});
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [sessionFilter, setSessionFilter] = useState<SessionFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(silent = false) {
+    if (!silent) setLoading(true);
     setError(null);
 
     try {
@@ -116,15 +153,45 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to read the TomatoBar log.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     void loadData();
+    const interval = window.setInterval(() => {
+      void loadData(true);
+    }, 10000);
+
+    return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const stored = window.localStorage.getItem("pomodoro-theme");
+    const nextTheme = stored === "dark" ? "dark" : "light";
+    setTheme(nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+
+    const storedFilter = window.localStorage.getItem("pomodoro-session-filter");
+    if (storedFilter === "completed" || storedFilter === "stopped" || storedFilter === "all") {
+      setSessionFilter(storedFilter);
+    }
+  }, []);
+
+  function toggleTheme() {
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      window.localStorage.setItem("pomodoro-theme", next);
+      document.documentElement.classList.toggle("dark", next === "dark");
+      return next;
+    });
+  }
+
   const sessions = data?.sessions ?? [];
+  const filteredSessions = useMemo(
+    () => sessions.filter((session) => sessionFilter === "all" || session.result === sessionFilter),
+    [sessions, sessionFilter]
+  );
 
   const summary = useMemo(() => {
     const totalSeconds = sessions.reduce((sum, session) => sum + session.durationSeconds, 0);
@@ -137,6 +204,11 @@ export default function App() {
   }, [sessions]);
 
   const chartData = useMemo(() => buildChartData(sessions), [sessions]);
+
+  function updateSessionFilter(filter: SessionFilter) {
+    setSessionFilter(filter);
+    window.localStorage.setItem("pomodoro-session-filter", filter);
+  }
 
   function updateDraft(sessionId: string, title: string) {
     setDrafts((current) => ({
@@ -160,19 +232,38 @@ export default function App() {
     }
   }
 
+  function editSession(sessionId: string) {
+    const input = inputRefs.current[sessionId];
+    input?.focus();
+    input?.select();
+  }
+
   return (
     <main className="mx-auto flex min-h-svh w-full max-w-[430px] flex-col gap-3 bg-background p-3 text-foreground">
-      <header className="flex items-start justify-between gap-3">
+      <header className="sticky top-0 z-10 -mx-3 -mt-3 flex items-center justify-between gap-3 border-b bg-background/95 px-3 py-3 shadow-sm backdrop-blur">
         <div className="flex min-w-0 flex-col gap-1">
-          <p className="text-xs font-medium text-muted-foreground">TomatoBar</p>
-          <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">Pomodoro</h1>
+          <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
         </div>
         <div className="flex shrink-0 gap-1">
-          <Button type="button" size="icon" variant="outline" onClick={() => void loadData()} disabled={loading} title="Refresh log">
-            <RefreshCw data-icon="inline-start" />
-          </Button>
-          <Button type="button" size="icon" variant="outline" onClick={() => void window.pomodoro.showLogFile()} title="Show log file">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={iconButtonClass}
+            onClick={() => void window.pomodoro.showLogFile()}
+            title="Show log file"
+          >
             <FileText data-icon="inline-start" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={iconButtonClass}
+            onClick={toggleTheme}
+            title="Toggle theme"
+          >
+            {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
           </Button>
         </div>
       </header>
@@ -217,60 +308,210 @@ export default function App() {
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="day" tickLine={false} tickMargin={8} axisLine={false} />
                 <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                <ChartLegend content={<ChartLegendContent />} />
-                <Bar dataKey="stopped" stackId="focus" fill="var(--color-stopped)" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="completed" stackId="focus" fill="var(--color-completed)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="completed" fill="var(--color-completed)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ChartContainer>
           )}
         </CardContent>
       </Card>
 
-      <section className="flex flex-col gap-2">
-        {sessions.map((session) => {
-          const draft = drafts[session.id] ?? { title: "" };
-          const saveState = saveStates[session.id] ?? "idle";
+      <motion.button
+        type="button"
+        whileHover={{ y: -1 }}
+        whileTap={{ scale: 0.98 }}
+        className="mx-auto inline-flex w-fit items-center gap-1 border-b border-dotted border-muted-foreground text-sm text-muted-foreground hover:text-foreground"
+        onClick={() => setIsSheetOpen(true)}
+      >
+        <ListTodo data-icon="inline-start" />
+        View {sessions.length} work blocks
+      </motion.button>
 
-          return (
-            <Card size="sm" key={session.id}>
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent
+          side="right"
+          showCloseButton={false}
+          className="!inset-0 !h-full !w-full !max-w-none gap-1 overflow-y-auto !border-l-0 bg-background p-2 duration-100 sm:!max-w-none"
+        >
+          <SheetHeader className="sticky top-0 z-10 -mx-2 -mt-2 flex-row items-center gap-3 border-b bg-popover/95 px-2 py-2 text-left shadow-sm backdrop-blur">
+            <Button type="button" size="icon" variant="ghost" className={iconButtonClass} onClick={() => setIsSheetOpen(false)} title="Back">
+              <ArrowLeft data-icon="inline-start" />
+            </Button>
+            <div className="min-w-0">
+              <SheetTitle className="truncate text-xl">Work Blocks</SheetTitle>
+              <SheetDescription className="truncate text-xs">
+                {filteredSessions.length} of {sessions.length} Pomodoro blocks
+              </SheetDescription>
+            </div>
+          </SheetHeader>
+
+          <FilterBadges
+            activeFilter={sessionFilter}
+            completedCount={summary.completed}
+            stoppedCount={summary.stopped}
+            totalCount={sessions.length}
+            onChange={updateSessionFilter}
+          />
+
+          <SessionList
+            sessions={filteredSessions}
+            drafts={drafts}
+            saveStates={saveStates}
+            inputRefs={inputRefs}
+            activeFilter={sessionFilter}
+            onFilterChange={updateSessionFilter}
+            updateDraft={updateDraft}
+            saveSession={saveSession}
+            editSession={editSession}
+          />
+        </SheetContent>
+      </Sheet>
+    </main>
+  );
+}
+
+function SessionList({
+  sessions,
+  drafts,
+  saveStates,
+  inputRefs,
+  activeFilter,
+  onFilterChange,
+  updateDraft,
+  saveSession,
+  editSession
+}: {
+  sessions: WorkSession[];
+  drafts: Record<string, SessionAnnotation>;
+  saveStates: Record<string, SaveState>;
+  inputRefs: React.MutableRefObject<Record<string, HTMLInputElement | null>>;
+  activeFilter: SessionFilter;
+  onFilterChange: (filter: SessionFilter) => void;
+  updateDraft: (sessionId: string, title: string) => void;
+  saveSession: (sessionId: string) => Promise<void>;
+  editSession: (sessionId: string) => void;
+}) {
+  if (sessions.length === 0) {
+    return (
+      <Empty className="min-h-[360px]">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Clock3 />
+          </EmptyMedia>
+          <EmptyTitle>No work blocks</EmptyTitle>
+          <EmptyDescription>TomatoBar sessions will show up here after you run a work timer.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <motion.section
+      initial="hidden"
+      animate="show"
+      variants={{ hidden: {}, show: { transition: { staggerChildren: 0.035 } } }}
+      className="flex flex-col gap-2"
+    >
+      {sessions.map((session) => {
+        const draft = drafts[session.id] ?? { title: "" };
+        const saveState = saveStates[session.id] ?? "idle";
+        const hasSavedTitle = session.title.trim().length > 0 && saveState !== "dirty" && saveState !== "saving" && saveState !== "error";
+        const ActionIcon = hasSavedTitle ? Edit3 : Save;
+        const actionTitle = hasSavedTitle ? "Edit title" : "Save title";
+
+        return (
+          <motion.div
+            key={session.id}
+            variants={{
+              hidden: { opacity: 0, y: 8 },
+              show: { opacity: 1, y: 0 }
+            }}
+            transition={{ duration: 0.18 }}
+          >
+            <Card size="sm">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <span>{formatDuration(session.durationSeconds)}</span>
-                  <Badge variant={session.result === "completed" ? "default" : "secondary"}>
-                    {session.result === "completed" ? "Done" : "Stopped"}
-                  </Badge>
+                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                  <span>{formatRelativeTime(session.start)} ({formatDuration(session.durationSeconds)})</span>
+                  <button type="button" onClick={() => onFilterChange(activeFilter === session.result ? "all" : session.result)}>
+                    <Badge variant={session.result === "completed" ? "default" : "secondary"}>
+                      {session.result === "completed" ? "Done" : "Stopped"}
+                    </Badge>
+                  </button>
                 </CardTitle>
-                <CardDescription>{timeFormatter.format(new Date(session.start * 1000))}</CardDescription>
                 <CardAction>
-                  <Button type="button" size="icon-sm" variant="outline" disabled={saveState === "saving"} onClick={() => void saveSession(session.id)} title="Save title">
-                    <Save data-icon="inline-start" />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className={iconButtonClass}
+                    disabled={saveState === "saving"}
+                    onClick={() => (hasSavedTitle ? editSession(session.id) : void saveSession(session.id))}
+                    title={actionTitle}
+                  >
+                    <ActionIcon data-icon="inline-start" />
                   </Button>
                 </CardAction>
               </CardHeader>
-              <CardContent>
+              <CardContent className="-mt-2">
                 <FieldGroup>
                   <Field>
-                    <FieldLabel htmlFor={`title-${session.id}`}>Title</FieldLabel>
                     <Input
                       id={`title-${session.id}`}
+                      ref={(element) => {
+                        inputRefs.current[session.id] = element;
+                      }}
                       value={draft.title}
                       placeholder="What did this block move?"
+                      className="border-transparent bg-card px-0 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-card"
                       onChange={(event) => updateDraft(session.id, event.target.value)}
                     />
                   </Field>
                 </FieldGroup>
               </CardContent>
               <CardFooter className="justify-between gap-2">
-                <span className="truncate text-xs text-muted-foreground">Ended {timeFormatter.format(new Date(session.end * 1000))}</span>
+                <span className="truncate text-xs text-muted-foreground" title={timeFormatter.format(new Date(session.start * 1000))}>
+                  {compactStartFormatter.format(new Date(session.start * 1000))}
+                </span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : saveState === "error" ? "Retry" : ""}
                 </span>
               </CardFooter>
             </Card>
-          );
-        })}
-      </section>
-    </main>
+          </motion.div>
+        );
+      })}
+    </motion.section>
+  );
+}
+
+function FilterBadges({
+  activeFilter,
+  completedCount,
+  stoppedCount,
+  totalCount,
+  onChange
+}: {
+  activeFilter: SessionFilter;
+  completedCount: number;
+  stoppedCount: number;
+  totalCount: number;
+  onChange: (filter: SessionFilter) => void;
+}) {
+  const filters: Array<{ id: SessionFilter; label: string; count: number }> = [
+    { id: "all", label: "All", count: totalCount },
+    { id: "completed", label: "Done", count: completedCount },
+    { id: "stopped", label: "Stopped", count: stoppedCount }
+  ];
+
+  return (
+    <div className="flex flex-wrap justify-center gap-1 pb-0">
+      {filters.map((filter) => (
+        <button type="button" key={filter.id} onClick={() => onChange(filter.id)}>
+          <Badge variant={activeFilter === filter.id ? "default" : "secondary"}>
+            {filter.label} {filter.count}
+          </Badge>
+        </button>
+      ))}
+    </div>
   );
 }
 
