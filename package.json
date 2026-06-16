@@ -1,0 +1,36 @@
+{
+  "name": "pomodoro-visualizer",
+  "version": "1.0.0",
+  "description": "Electron React Pomodoro visualizer for TomatoBar JSON logs.",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "start": "npm run build && electron ."
+  },
+  "author": "Vivek Kumar",
+  "license": "MIT",
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.9",
+    "@tailwindcss/vite": "^4.3.1",
+    "@vitejs/plugin-react": "^5.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.468.0",
+    "radix-ui": "^1.6.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^3.8.0",
+    "shadcn": "^4.11.0",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.1",
+    "tw-animate-css": "^1.4.0",
+    "vite": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "electron": "^33.2.1",
+    "typescript": "^5.7.2"
+  }
+}
