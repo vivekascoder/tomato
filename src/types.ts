@@ -30,6 +30,12 @@ export type DashboardData = {
   todayFocusSeconds: number;
   totalCompleted: number;
   totalFocusSeconds: number;
+  dailyFocusSeconds: {
+    date: string;
+    label: string;
+    focusSeconds: number;
+    completed: number;
+  }[];
   recentSessions: WorkSession[];
 };
 
@@ -43,7 +49,11 @@ export type PomodoroAPI = {
   getSettings: () => Promise<TimerSettings>;
   saveSettings: (settings: TimerSettings) => Promise<TimerSettings>;
   getDashboard: () => Promise<DashboardData>;
+  setSessionName: (name: string) => Promise<TimerState>;
   saveAnnotation: (sessionId: string, annotation: { title: string }) => Promise<{ title: string }>;
+  showSessionContextMenu: () => Promise<"copy" | "edit" | "delete" | null>;
+  copyText: (text: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<DashboardData>;
   onStateChange: (callback: (state: TimerState) => void) => () => void;
 };
 

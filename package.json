@@ -1,14 +1,38 @@
 {
   "name": "pomodoro-visualizer",
   "version": "1.0.0",
+  "productName": "Tomato",
   "description": "Desktop Pomodoro timer with macOS menu bar support.",
   "main": "main.js",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac"
   },
   "author": "Vivek Kumar",
   "license": "MIT",
+  "build": {
+    "appId": "com.vivekascoder.tomato",
+    "productName": "Tomato",
+    "files": [
+      "main.js",
+      "preload.js",
+      "dist/**/*",
+      "assets/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "icon": "assets/icon.png"
+    }
+  },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
     "@tailwindcss/vite": "^4.3.1",
@@ -33,6 +57,7 @@
     "@types/react-dom": "^19.0.2",
     "canvas": "^3.2.3",
     "electron": "^33.2.1",
+    "electron-builder": "^25.1.7",
     "typescript": "^5.7.2"
   }
 }

@@ -1,6 +1,7 @@
-import { CheckCircle2, Clock3, History, List, Moon, Pause, Play, RotateCcw, Settings, SkipForward, Sun, Timer } from "lucide-react";
-import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { CheckCircle2, Clock3, History, List, Moon, Pause, Play, RotateCcw, Settings, SkipForward, Sun, Timer, X } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import {
   CardTitle
 } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Field, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
+import { Field, FieldGroup, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,23 @@ const VIEW_INDEX: Record<View, number> = {
 const iconButtonClass = "size-8 rounded-full border-0 p-2 shadow-none hover:bg-muted [&_svg]:size-3.5";
 const tomatoRed = "#e54b4b";
 const breakGreen = "#22c55e";
+
+function TomatoIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 512 512"
+      className={cn("shrink-0", className)}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M269 24.54c-3.1.11-5.7 0-7.6.21c-2.8.25-4.7.45-7.2 2.23l-1 69.32c3 1.18 6.4 2.3 9.7 2.51c4.1.3 6.8-.21 9.2-2.41zm-103.4 37.9c.1 5.95.3 11.01 1.5 14.14c2.3 5.22 7 9.88 26 13.92l22.5 4.78l-19.5 11.82c-16.5 10.1-35.2 19.4-51.5 26.5c6.2.7 12.3 1.4 18.2 1.4c17.8-.1 34.6-3.9 55.3-18.1L234 106l.4-24.35c-25.5-5.62-46.5-11.68-68.8-19.21m181.2 6.49c-19.5 6.69-34.4 10.97-56.4 14.16l.9 18.81l-1.7 2.5c-6.8 10-18.4 13.3-27.9 12.7s-17.6-3.9-23.4-7.6l-3.2-2.1l-2.2 18c-1.9 17.1-2.1 28.3-5.2 42.4c14.6-10.4 24.4-18.9 36.5-37.3l7.2-10.7l8.1 10c10.9 13 28.8 22.9 48.5 29c-5.7-6.5-10.9-14.5-12-25l-1.4-14.1l13.9 4.6c20.6 6.6 26.9 6.1 33.9 3.7c2.9-.9 6.7-2.6 10.6-4.5l-80.7-27.61l27.3-8.15c14.2-4.24 20.9-9.1 24.6-13.94c1-1.5 1.9-3.14 2.6-4.87M405.5 132l-1.8.4c-17.4 4.2-24.3 9.5-35 13.1c-7.4 2.3-15.6 2.8-26.7.9c.4.6 1 1.2 1.5 1.8c5 5.5 12.2 11.6 18.8 20.2l13.2 17.2l-21.9-2.6c-29.1-3.5-59.4-13.9-80.3-32.9c-16.3 21.4-31.5 30.4-57.2 48.6l-25.8 18.4l11.3-29.1c8.4-21.1 9.3-31.3 10.7-46.3c-17.3 8.4-33.7 11.5-49.5 11.6c-18.7 0-36.5-3.7-55.2-6.4c-.4 0-.8.1-1.2.2c-59.84 46.2-68.94 115.5-68.87 150.3c.17 94.2 26.73 186.7 222.47 190C408.9 490 475.4 388 474.5 293.2c-.8-60.6-12.3-124.4-69-161.2m-258.4 34.3c13.2-.2 26.4 4.4 28.3 12.4c-92.08 41.9-91.59 97.8-105.21 156.8c-11.1-56.8-7.31-122.5 55.21-163.6c5.6-3.8 13.8-5.5 21.7-5.6"
+      />
+    </svg>
+  );
+}
 
 function formatDuration(totalSeconds: number) {
   const rounded = Math.max(0, Math.round(totalSeconds));
@@ -151,7 +169,7 @@ export default function App() {
   const [sessionName, setSessionName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [burst, setBurst] = useState<{ x: number; y: number; color: string; size: number; target: "light" | "dark" } | null>(null);
+  const lastStatusRef = useRef<TimerState["status"] | null>(null);
 
   async function loadInitial() {
     try {
@@ -164,6 +182,7 @@ export default function App() {
       setSettings(nextSettings);
       setDashboard(nextDashboard);
       setSessionName(nextState.sessionName);
+      lastStatusRef.current = nextState.status;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load pomodoro state.");
     } finally {
@@ -175,12 +194,19 @@ export default function App() {
     void loadInitial();
     const unsubscribe = window.pomodoro.onStateChange((next) => {
       setState(next);
-      if (view === "dashboard") {
+      if (lastStatusRef.current !== next.status || next.status === "idle") {
         void window.pomodoro.getDashboard().then(setDashboard);
       }
+      lastStatusRef.current = next.status;
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (view === "dashboard" || view === "history") {
+      void window.pomodoro.getDashboard().then(setDashboard);
+    }
+  }, [view]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("pomodoro-theme");
@@ -204,20 +230,24 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [state, sessionName]);
 
-  function startThemeTransition(event: React.MouseEvent<HTMLButtonElement>) {
-    const target = theme === "dark" ? "light" : "dark";
-    const color = target === "dark" ? "oklch(0.145 0 0)" : "oklch(1 0 0)";
-    const size = Math.hypot(window.innerWidth, window.innerHeight) * 2.5;
-    setBurst({ x: event.clientX, y: event.clientY, color, size, target });
-  }
-
-  function finishThemeTransition() {
-    if (!burst) return;
-    const next = burst.target;
+  function applyTheme(next: "light" | "dark") {
     window.localStorage.setItem("pomodoro-theme", next);
     document.documentElement.classList.toggle("dark", next === "dark");
     setTheme(next);
-    setBurst(null);
+  }
+
+  function toggleTheme(event: React.MouseEvent<HTMLButtonElement>) {
+    const next = theme === "dark" ? "light" : "dark";
+    const doc = document as any;
+    if (!("startViewTransition" in doc)) {
+      applyTheme(next);
+      return;
+    }
+    document.documentElement.style.setProperty("--theme-x", `${event.clientX}px`);
+    document.documentElement.style.setProperty("--theme-y", `${event.clientY}px`);
+    doc.startViewTransition(() => {
+      applyTheme(next);
+    });
   }
 
   async function handleStart() {
@@ -252,6 +282,27 @@ export default function App() {
     setSettings(saved);
   }
 
+  const [renamingSession, setRenamingSession] = useState<WorkSession | null>(null);
+
+  async function handleSaveRename(sessionId: string, title: string) {
+    await window.pomodoro.saveAnnotation(sessionId, { title: title.trim() });
+    await loadInitial();
+    setRenamingSession(null);
+  }
+
+  async function handleSessionNameCommit(value: string) {
+    const trimmed = value.trim();
+    setSessionName(trimmed);
+    if (state && state.status !== "idle") {
+      try {
+        const next = await window.pomodoro.setSessionName(trimmed);
+        setState(next);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to update session name.");
+      }
+    }
+  }
+
   if (loading || !state || !settings) {
     return (
       <main className="flex h-svh w-full items-center justify-center bg-background text-foreground">
@@ -260,17 +311,18 @@ export default function App() {
           transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           className="text-4xl"
         >
-          🍅
+          <TomatoIcon className="size-10" />
         </motion.div>
       </main>
     );
   }
 
   return (
-    <main className="flex h-svh w-full flex-col overflow-hidden bg-background text-foreground">
+    <main className="relative flex h-svh w-full flex-col overflow-hidden bg-background text-foreground">
       <header className="flex shrink-0 items-center justify-between gap-3 border-b bg-background px-3 py-3">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
+        <div className="flex min-w-0 items-center gap-2">
+          <TomatoIcon className="size-6 text-foreground" />
+          <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">Tomato</h1>
         </div>
         <div className="flex shrink-0 gap-1">
           {VIEWS.map(({ id, label, icon: Icon }) => (
@@ -291,7 +343,7 @@ export default function App() {
             size="icon"
             variant="ghost"
             className={iconButtonClass}
-            onClick={startThemeTransition}
+            onClick={toggleTheme}
             title="Toggle theme"
           >
             {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
@@ -316,6 +368,7 @@ export default function App() {
               state={state}
               sessionName={sessionName}
               onSessionNameChange={setSessionName}
+              onSessionNameCommit={handleSessionNameCommit}
               onStart={handleStart}
               onPause={handlePause}
               onResume={handleResume}
@@ -327,30 +380,23 @@ export default function App() {
             <DashboardView state={state} dashboard={dashboard} onRefresh={loadInitial} />
           </section>
           <section className="h-full w-1/4 shrink-0 overflow-y-auto">
-            <HistoryView />
+            <HistoryView
+              sessions={dashboard?.recentSessions ?? []}
+              onRefresh={loadInitial}
+              onEditSession={setRenamingSession}
+            />
           </section>
           <section className="h-full w-1/4 shrink-0 overflow-y-auto">
             <SettingsView settings={settings} onChange={handleSaveSettings} />
           </section>
         </motion.div>
       </div>
-      {burst && (
-        <motion.div
-          aria-hidden
-          className="pointer-events-none fixed z-50 rounded-full"
-          initial={{ width: 0, height: 0 }}
-          animate={{ width: burst.size, height: burst.size }}
-          onAnimationComplete={finishThemeTransition}
-          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-          style={{
-            left: burst.x,
-            top: burst.y,
-            backgroundColor: burst.color,
-            x: "-50%",
-            y: "-50%"
-          }}
-        />
-      )}
+
+      <SessionRenameSheet
+        session={renamingSession}
+        onClose={() => setRenamingSession(null)}
+        onSave={handleSaveRename}
+      />
     </main>
   );
 }
@@ -359,6 +405,7 @@ function TimerView({
   state,
   sessionName,
   onSessionNameChange,
+  onSessionNameCommit,
   onStart,
   onPause,
   onResume,
@@ -368,6 +415,7 @@ function TimerView({
   state: TimerState;
   sessionName: string;
   onSessionNameChange: (value: string) => void;
+  onSessionNameCommit: (value: string) => void;
   onStart: () => void;
   onPause: () => void;
   onResume: () => void;
@@ -419,9 +467,14 @@ function TimerView({
           <Input
             value={sessionName}
             onChange={(event) => onSessionNameChange(event.target.value)}
+            onBlur={(event) => onSessionNameCommit(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
             placeholder="What are you focusing on?"
             className="h-10 text-center"
-            disabled={!isIdle}
           />
         </Field>
       </FieldGroup>
@@ -501,23 +554,33 @@ function DashboardView({
 
       <Card>
         <CardHeader>
-          <CardTitle>Recent sessions</CardTitle>
+          <CardTitle>Focus trend</CardTitle>
         </CardHeader>
         <CardContent>
-          {data?.recentSessions && data.recentSessions.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {data.recentSessions.slice(0, 6).map((session) => (
-                <SessionRow key={session.id} session={session} />
-              ))}
+          {data?.dailyFocusSeconds?.some((day) => day.focusSeconds > 0) ? (
+            <div className="h-44 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.dailyFocusSeconds} margin={{ top: 8, right: 4, left: -24, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    tickFormatter={(value) => `${Math.round(Number(value) / 60)}m`}
+                  />
+                  <Bar dataKey="focusSeconds" fill="#e54b4b" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           ) : (
             <Empty className="min-h-[160px]">
               <EmptyHeader>
                 <EmptyMedia variant="icon">
-                  <Clock3 />
+                  <List />
                 </EmptyMedia>
-                <EmptyTitle>No sessions yet</EmptyTitle>
-                <EmptyDescription>Start a focus timer to see your work blocks here.</EmptyDescription>
+                <EmptyTitle>No focus data yet</EmptyTitle>
+                <EmptyDescription>Completed sessions will be plotted here automatically.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           )}
@@ -527,9 +590,15 @@ function DashboardView({
   );
 }
 
-function SessionRow({ session }: { session: WorkSession }) {
+function SessionRow({ session, onContextMenu }: { session: WorkSession; onContextMenu?: (session: WorkSession) => void }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-lg border p-2.5">
+    <div
+      className="flex cursor-context-menu items-center justify-between gap-2 rounded-lg border p-2.5 transition-colors hover:bg-muted/40"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContextMenu?.(session);
+      }}
+    >
       <div className="flex min-w-0 flex-col gap-0.5">
         <span className="truncate text-sm font-medium">
           {session.title.trim() || "Untitled session"}
@@ -548,21 +617,30 @@ function SessionRow({ session }: { session: WorkSession }) {
   );
 }
 
-function HistoryView() {
-  const [sessions, setSessions] = useState<WorkSession[]>([]);
-  const [loading, setLoading] = useState(true);
+function HistoryView({
+  sessions,
+  onRefresh,
+  onEditSession
+}: {
+  sessions: WorkSession[];
+  onRefresh: () => Promise<void>;
+  onEditSession: (session: WorkSession) => void;
+}) {
   const [filter, setFilter] = useState<"all" | "completed" | "stopped">("all");
 
-  useEffect(() => {
-    async function load() {
-      const data = await window.pomodoro.getDashboard();
-      setSessions(data.recentSessions);
-      setLoading(false);
-    }
-    void load();
-  }, []);
-
   const filtered = sessions.filter((s) => filter === "all" || s.result === filter);
+
+  async function handleContextMenu(session: WorkSession) {
+    const action = await window.pomodoro.showSessionContextMenu();
+    if (action === "edit") {
+      onEditSession(session);
+    } else if (action === "copy") {
+      await window.pomodoro.copyText(session.title.trim() || "Untitled session");
+    } else if (action === "delete") {
+      await window.pomodoro.deleteSession(session.id);
+      await onRefresh();
+    }
+  }
 
   return (
     <div className="flex flex-col gap-3 px-3 py-3">
@@ -574,13 +652,7 @@ function HistoryView() {
         ))}
       </div>
 
-      {loading ? (
-        <div className="space-y-2">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <Empty className="min-h-[360px]">
           <EmptyHeader>
             <EmptyMedia variant="icon">
@@ -593,11 +665,91 @@ function HistoryView() {
       ) : (
         <div className="flex flex-col gap-2">
           {filtered.map((session) => (
-            <SessionRow key={session.id} session={session} />
+            <SessionRow key={session.id} session={session} onContextMenu={handleContextMenu} />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function SessionRenameSheet({
+  session,
+  onClose,
+  onSave
+}: {
+  session: WorkSession | null;
+  onClose: () => void;
+  onSave: (sessionId: string, title: string) => void | Promise<void>;
+}) {
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (session) {
+      setValue(session.title);
+      setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 50);
+    }
+  }, [session]);
+
+  async function handleSave() {
+    if (!session) return;
+    await onSave(session.id, value);
+  }
+
+  return (
+    <AnimatePresence>
+      {session && (
+        <>
+          <motion.div
+            className="absolute inset-0 z-40 bg-black/40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+          />
+          <motion.div
+            className="absolute bottom-0 left-1/2 z-50 flex h-[40%] w-[390px] -translate-x-1/2 flex-col rounded-t-2xl border bg-background px-4 pt-4 shadow-xl"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "tween", duration: 0.25, ease: "easeOut" }}
+          >
+            <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-muted" />
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-heading text-lg font-semibold">Rename session</h2>
+              <Button type="button" variant="ghost" size="icon" className="size-7" onClick={onClose}>
+                <X className="size-4" />
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {formatRelativeTime(session.start)} · {compactTimeFormatter.format(new Date(session.start * 1000))}
+            </p>
+            <div className="mt-4 flex flex-1 flex-col gap-3">
+              <Input
+                ref={inputRef}
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void handleSave();
+                  if (event.key === "Escape") onClose();
+                }}
+                placeholder="Session name"
+                className="h-11"
+              />
+              <div className="mt-auto flex gap-2 pb-4">
+                <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+                  Cancel
+                </Button>
+                <Button type="button" className="flex-1" onClick={() => void handleSave()}>
+                  Save
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -732,4 +884,8 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
       </CardContent>
     </Card>
   );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-col gap-1">{children}</div>;
 }
