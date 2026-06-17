@@ -1,7 +1,7 @@
 {
   "name": "pomodoro-visualizer",
   "version": "1.0.0",
-  "description": "Electron React Pomodoro visualizer for TomatoBar JSON logs.",
+  "description": "Desktop Pomodoro timer with macOS menu bar support.",
   "main": "main.js",
   "scripts": {
     "build": "tsc --noEmit && vite build",
@@ -31,6 +31,7 @@
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
+    "canvas": "^3.2.3",
     "electron": "^33.2.1",
     "typescript": "^5.7.2"
   }

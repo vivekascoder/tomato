@@ -1,162 +1,184 @@
-import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle2, Clock3, FileText, Moon, Pencil, RefreshCw, Save, Sun } from "lucide-react";
+import { CheckCircle2, Clock3, History, List, Moon, Pause, Play, RotateCcw, Settings, SkipForward, Sun, Timer } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle
 } from "@/components/ui/card";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig
-} from "@/components/ui/chart";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Field, FieldGroup } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import type { LogData, SessionAnnotation, WorkSession } from "./types";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
+import type { DashboardData, TimerSettings, TimerState, WorkSession } from "./types";
 
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
-type SessionFilter = "all" | "completed" | "stopped";
+type View = "timer" | "dashboard" | "history" | "settings";
+
+const VIEWS: { id: View; label: string; icon: React.ElementType }[] = [
+  { id: "timer", label: "Timer", icon: Timer },
+  { id: "dashboard", label: "Dashboard", icon: List },
+  { id: "history", label: "History", icon: History },
+  { id: "settings", label: "Settings", icon: Settings }
+];
+
+const VIEW_INDEX: Record<View, number> = {
+  timer: 0,
+  dashboard: 1,
+  history: 2,
+  settings: 3
+};
 
 const iconButtonClass = "size-8 rounded-full border-0 p-2 shadow-none hover:bg-muted [&_svg]:size-3.5";
+const tomatoRed = "#e54b4b";
+const breakGreen = "#22c55e";
 
-const timeFormatter = new Intl.DateTimeFormat("en-IN", {
-  timeZone: "Asia/Kolkata",
-  dateStyle: "medium",
-  timeStyle: "short"
-});
+function formatDuration(totalSeconds: number) {
+  const rounded = Math.max(0, Math.round(totalSeconds));
+  const hours = Math.floor(rounded / 3600);
+  const mins = Math.floor((rounded % 3600) / 60);
+  const secs = rounded % 60;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  if (mins > 0) return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
 
-const compactStartFormatter = new Intl.DateTimeFormat("en-IN", {
+function formatClock(totalSeconds: number) {
+  const rounded = Math.max(0, Math.round(totalSeconds));
+  const mins = String(Math.floor(rounded / 60)).padStart(2, "0");
+  const secs = String(rounded % 60).padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
+const compactTimeFormatter = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
   weekday: "short",
-  day: "2-digit",
-  month: "short",
   hour: "numeric",
   minute: "2-digit",
   hour12: true
 });
 
-const relativeFormatter = new Intl.RelativeTimeFormat("en", {
-  numeric: "auto"
-});
-
-const dayFormatter = new Intl.DateTimeFormat("en-IN", {
-  timeZone: "Asia/Kolkata",
-  weekday: "short",
-  day: "2-digit",
-  month: "short"
-});
-
-const chartConfig = {
-  completed: {
-    label: "Completed",
-    color: "var(--chart-2)"
-  },
-  stopped: {
-    label: "Stopped early",
-    color: "var(--chart-1)"
-  }
-} satisfies ChartConfig;
-
-function formatDuration(seconds: number) {
-  const rounded = Math.round(seconds);
-  const mins = Math.floor(rounded / 60);
-  const secs = rounded % 60;
-  if (mins === 0) return `${secs}s`;
-  return secs === 0 ? `${mins}m` : `${mins}m ${secs}s`;
-}
+const relativeFormatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
 function formatRelativeTime(timestamp: number) {
   const diffSeconds = timestamp - Date.now() / 1000;
   const absSeconds = Math.abs(diffSeconds);
-
   if (absSeconds < 60) return relativeFormatter.format(Math.round(diffSeconds), "second");
   if (absSeconds < 3600) return relativeFormatter.format(Math.round(diffSeconds / 60), "minute");
   if (absSeconds < 86400) return relativeFormatter.format(Math.round(diffSeconds / 3600), "hour");
-  if (absSeconds < 604800) return relativeFormatter.format(Math.round(diffSeconds / 86400), "day");
-  return relativeFormatter.format(Math.round(diffSeconds / 604800), "week");
+  return relativeFormatter.format(Math.round(diffSeconds / 86400), "day");
 }
 
-function dayKey(timestamp: number) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date(timestamp * 1000));
-}
+function CircularProgress({
+  total,
+  remaining,
+  color,
+  children,
+  isRunning
+}: {
+  total: number;
+  remaining: number;
+  color: string;
+  children: React.ReactNode;
+  isRunning: boolean;
+}) {
+  const radius = 110;
+  const stroke = 12;
+  const normalizedRadius = radius - stroke / 2;
+  const circumference = normalizedRadius * 2 * Math.PI;
+  const progress = total > 0 ? remaining / total : 0;
+  const dashoffset = circumference - progress * circumference;
 
-function buildChartData(sessions: WorkSession[]) {
-  const days = new Map<string, { day: string; completed: number }>();
-
-  for (const session of sessions.filter((item) => item.result === "completed")) {
-    const key = dayKey(session.start);
-    const row = days.get(key) ?? {
-      day: dayFormatter.format(new Date(session.start * 1000)),
-      completed: 0
-    };
-
-    row.completed += Number((session.durationSeconds / 60).toFixed(2));
-    days.set(key, row);
-  }
-
-  return [...days.values()];
+  return (
+    <div className="relative flex items-center justify-center">
+      <motion.svg
+        width={radius * 2}
+        height={radius * 2}
+        viewBox={`0 0 ${radius * 2} ${radius * 2}`}
+        initial={{ rotate: -90 }}
+        animate={{ rotate: -90 }}
+        className="block"
+      >
+        <circle
+          stroke="currentColor"
+          fill="transparent"
+          strokeWidth={stroke}
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+          className="text-muted/60"
+        />
+        <motion.circle
+          stroke={color}
+          fill="transparent"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+          style={{
+            strokeDasharray: `${circumference} ${circumference}`,
+            strokeDashoffset: dashoffset
+          }}
+          transition={{ duration: 0.5, ease: "easeInOut" }}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: dashoffset }}
+        />
+      </motion.svg>
+      {isRunning && (
+        <motion.div
+          className="pointer-events-none absolute inset-0 rounded-full"
+          style={{ boxShadow: `0 0 0 0 ${color}40` }}
+          animate={{ boxShadow: [`0 0 0 0px ${color}00`, `0 0 0 12px ${color}00`] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+        />
+      )}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">{children}</div>
+    </div>
+  );
 }
 
 export default function App() {
-  const [data, setData] = useState<LogData | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, SessionAnnotation>>({});
-  const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
+  const [state, setState] = useState<TimerState | null>(null);
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [settings, setSettings] = useState<TimerSettings | null>(null);
+  const [view, setView] = useState<View>("timer");
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [showBlocks, setShowBlocks] = useState(false);
-  const [sessionFilter, setSessionFilter] = useState<SessionFilter>("all");
+  const [sessionName, setSessionName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  async function loadData(silent = false) {
-    if (!silent) setLoading(true);
-    setError(null);
-
+  async function loadInitial() {
     try {
-      const next = await window.pomodoro.getLogData();
-      setData(next);
-      setDrafts(
-        Object.fromEntries(
-          next.sessions.map((session) => [
-            session.id,
-            {
-              title: session.title
-            }
-          ])
-        )
-      );
-      setSaveStates({});
+      const [nextState, nextSettings, nextDashboard] = await Promise.all([
+        window.pomodoro.getState(),
+        window.pomodoro.getSettings(),
+        window.pomodoro.getDashboard()
+      ]);
+      setState(nextState);
+      setSettings(nextSettings);
+      setDashboard(nextDashboard);
+      setSessionName(nextState.sessionName);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to read the TomatoBar log.");
+      setError(err instanceof Error ? err.message : "Failed to load pomodoro state.");
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadData();
-    const interval = window.setInterval(() => {
-      void loadData(true);
-    }, 10000);
-
-    return () => window.clearInterval(interval);
+    void loadInitial();
+    const unsubscribe = window.pomodoro.onStateChange((next) => {
+      setState(next);
+      if (view === "dashboard") {
+        void window.pomodoro.getDashboard().then(setDashboard);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -164,12 +186,22 @@ export default function App() {
     const nextTheme = stored === "dark" ? "dark" : "light";
     setTheme(nextTheme);
     document.documentElement.classList.toggle("dark", nextTheme === "dark");
-
-    const storedFilter = window.localStorage.getItem("pomodoro-session-filter");
-    if (storedFilter === "completed" || storedFilter === "stopped" || storedFilter === "all") {
-      setSessionFilter(storedFilter);
-    }
   }, []);
+
+  useEffect(() => {
+    if (!state) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        if (state.isRunning) void window.pomodoro.pause();
+        else if (state.status === "idle") void window.pomodoro.start(sessionName);
+        else void window.pomodoro.resume();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [state, sessionName]);
 
   function toggleTheme() {
     setTheme((current) => {
@@ -180,392 +212,483 @@ export default function App() {
     });
   }
 
-  const sessions = data?.sessions ?? [];
-  const filteredSessions = useMemo(
-    () => sessions.filter((session) => sessionFilter === "all" || session.result === sessionFilter),
-    [sessions, sessionFilter]
-  );
-
-  const summary = useMemo(() => {
-    const totalSeconds = sessions.reduce((sum, session) => sum + session.durationSeconds, 0);
-    return {
-      totalSeconds,
-      completed: sessions.filter((session) => session.result === "completed").length,
-      stopped: sessions.filter((session) => session.result === "stopped").length,
-      activeDays: new Set(sessions.map((session) => dayKey(session.start))).size
-    };
-  }, [sessions]);
-
-  const chartData = useMemo(() => buildChartData(sessions), [sessions]);
-
-  function updateSessionFilter(filter: SessionFilter) {
-    setSessionFilter(filter);
-    window.localStorage.setItem("pomodoro-session-filter", filter);
+  async function handleStart() {
+    const next = await window.pomodoro.start(sessionName);
+    setState(next);
   }
 
-  function updateDraft(sessionId: string, title: string) {
-    setDrafts((current) => ({
-      ...current,
-      [sessionId]: {
-        title
-      }
-    }));
-    setSaveStates((current) => ({ ...current, [sessionId]: "dirty" }));
+  async function handlePause() {
+    const next = await window.pomodoro.pause();
+    setState(next);
   }
 
-  async function saveSession(sessionId: string) {
-    const draft = drafts[sessionId] ?? { title: "" };
-    setSaveStates((current) => ({ ...current, [sessionId]: "saving" }));
+  async function handleResume() {
+    const next = await window.pomodoro.resume();
+    setState(next);
+  }
 
-    try {
-      await window.pomodoro.saveAnnotation(sessionId, draft);
-      setSaveStates((current) => ({ ...current, [sessionId]: "saved" }));
-    } catch {
-      setSaveStates((current) => ({ ...current, [sessionId]: "error" }));
-    }
+  async function handleStop() {
+    const next = await window.pomodoro.stop();
+    setState(next);
+    const nextDashboard = await window.pomodoro.getDashboard();
+    setDashboard(nextDashboard);
+  }
+
+  async function handleSkip() {
+    const next = await window.pomodoro.skip();
+    setState(next);
+  }
+
+  async function handleSaveSettings(nextSettings: TimerSettings) {
+    const saved = await window.pomodoro.saveSettings(nextSettings);
+    setSettings(saved);
+  }
+
+  if (loading || !state || !settings) {
+    return (
+      <main className="flex h-svh w-full items-center justify-center bg-background text-foreground">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+          className="text-4xl"
+        >
+          🍅
+        </motion.div>
+      </main>
+    );
   }
 
   return (
-    <main className="relative h-svh w-full overflow-hidden bg-background text-foreground">
-      <motion.div
-        className="flex h-full w-[200%]"
-        animate={{ x: showBlocks ? "-50%" : "0%" }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-      >
-        {/* Tomato Screen */}
-        <div className="flex h-full w-1/2 flex-col gap-3 overflow-y-auto p-3">
-          <header className="flex items-center justify-between gap-3 border-b bg-background px-3 py-3">
-            <div className="flex min-w-0 flex-col gap-1">
-              <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
-            </div>
-            <div className="flex shrink-0 gap-1">
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className={iconButtonClass}
-                onClick={() => void window.pomodoro.showLogFile()}
-                title="Show log file"
-              >
-                <FileText data-icon="inline-start" />
-              </Button>
-              <Button
-                type="button"
-                size="icon"
-                variant="ghost"
-                className={iconButtonClass}
-                onClick={toggleTheme}
-                title="Toggle theme"
-              >
-                {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
-              </Button>
-            </div>
-          </header>
-
-          {error ? (
-            <Card size="sm" className="border-destructive/30 bg-destructive/5">
-              <CardContent className="text-sm text-destructive">{error}</CardContent>
-            </Card>
-          ) : null}
-
-          <section className="grid grid-cols-2 gap-2" aria-label="Pomodoro summary">
-            <Metric icon={<Clock3 />} label="Work" value={formatDuration(summary.totalSeconds)} />
-            <Metric icon={<CheckCircle2 />} label="Done" value={`${summary.completed}`} />
-            <Metric icon={<RefreshCw />} label="Stopped" value={`${summary.stopped}`} />
-            <Metric icon={<CalendarDays />} label="Days" value={`${summary.activeDays}`} />
-          </section>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Daily Focus</CardTitle>
-              <CardDescription>{sessions.length} blocks from TomatoBar</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex flex-col gap-2">
-                  <Skeleton className="h-[190px] w-full rounded-lg" />
-                  <Skeleton className="h-4 w-2/3" />
-                </div>
-              ) : chartData.length === 0 ? (
-                <Empty className="min-h-[190px]">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <Clock3 />
-                    </EmptyMedia>
-                    <EmptyTitle>No blocks yet</EmptyTitle>
-                    <EmptyDescription>Start a TomatoBar work timer to populate this chart.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <ChartContainer config={chartConfig} className="h-[220px] w-full">
-                  <BarChart accessibilityLayer data={chartData}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis dataKey="day" tickLine={false} tickMargin={8} axisLine={false} />
-                    <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                    <Bar dataKey="completed" fill="var(--color-completed)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ChartContainer>
-              )}
-            </CardContent>
-          </Card>
-
-          <motion.button
-            type="button"
-            whileHover={{ y: -1 }}
-            whileTap={{ scale: 0.98 }}
-            className="mx-auto inline-flex w-fit items-center gap-2 border-b border-dashed border-muted-foreground pb-0.5 text-sm text-muted-foreground hover:text-foreground"
-            onClick={() => setShowBlocks(true)}
-          >
-            View {sessions.length} work blocks
-            <ArrowRight data-icon="inline-start" className="size-3.5" />
-          </motion.button>
+    <main className="flex h-svh w-full flex-col overflow-hidden bg-background text-foreground">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b bg-background px-3 py-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h1 className="truncate font-heading text-2xl font-semibold tracking-normal">🍅 Tomato</h1>
         </div>
-
-        {/* Work Blocks Screen */}
-        <div className="flex h-full w-1/2 flex-col overflow-y-auto bg-background">
-          <header className="sticky top-0 z-10 flex flex-row items-center gap-3 border-b bg-popover/95 px-3 py-3 shadow-sm backdrop-blur">
-            <Button type="button" size="icon" variant="ghost" className={iconButtonClass} onClick={() => setShowBlocks(false)} title="Back">
-              <ArrowLeft data-icon="inline-start" />
+        <div className="flex shrink-0 gap-1">
+          {VIEWS.map(({ id, label, icon: Icon }) => (
+            <Button
+              key={id}
+              type="button"
+              size="icon"
+              variant={view === id ? "secondary" : "ghost"}
+              className={iconButtonClass}
+              onClick={() => setView(id)}
+              title={label}
+            >
+              <Icon data-icon="inline-start" />
             </Button>
-            <div className="min-w-0">
-              <h2 className="truncate font-heading text-xl font-semibold">Work Blocks</h2>
-              <p className="truncate text-xs text-muted-foreground">
-                {filteredSessions.length} of {sessions.length} Pomodoro blocks
-              </p>
-            </div>
-          </header>
-
-          <div className="flex flex-col gap-2 px-3 pb-3 pt-2">
-            <FilterBadges
-              activeFilter={sessionFilter}
-              completedCount={summary.completed}
-              stoppedCount={summary.stopped}
-              totalCount={sessions.length}
-              onChange={updateSessionFilter}
-            />
-
-            <SessionList
-              sessions={filteredSessions}
-              drafts={drafts}
-              saveStates={saveStates}
-              inputRefs={inputRefs}
-              activeFilter={sessionFilter}
-              onFilterChange={updateSessionFilter}
-              updateDraft={updateDraft}
-              saveSession={saveSession}
-            />
-          </div>
+          ))}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={iconButtonClass}
+            onClick={toggleTheme}
+            title="Toggle theme"
+          >
+            {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
+          </Button>
         </div>
-      </motion.div>
+      </header>
+
+      {error ? (
+        <div className="mx-3 mt-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="relative flex-1 overflow-hidden">
+        <motion.div
+          className="flex h-full w-[400%]"
+          animate={{ x: `-${VIEW_INDEX[view] * 25}%` }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        >
+          <section className="h-full w-1/4 shrink-0 overflow-y-auto">
+            <TimerView
+              state={state}
+              sessionName={sessionName}
+              onSessionNameChange={setSessionName}
+              onStart={handleStart}
+              onPause={handlePause}
+              onResume={handleResume}
+              onStop={handleStop}
+              onSkip={handleSkip}
+            />
+          </section>
+          <section className="h-full w-1/4 shrink-0 overflow-y-auto">
+            <DashboardView state={state} dashboard={dashboard} onRefresh={loadInitial} />
+          </section>
+          <section className="h-full w-1/4 shrink-0 overflow-y-auto">
+            <HistoryView />
+          </section>
+          <section className="h-full w-1/4 shrink-0 overflow-y-auto">
+            <SettingsView settings={settings} onChange={handleSaveSettings} />
+          </section>
+        </motion.div>
+      </div>
     </main>
   );
 }
 
-function SessionList({
-  sessions,
-  drafts,
-  saveStates,
-  inputRefs,
-  activeFilter,
-  onFilterChange,
-  updateDraft,
-  saveSession
+function TimerView({
+  state,
+  sessionName,
+  onSessionNameChange,
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+  onSkip
 }: {
-  sessions: WorkSession[];
-  drafts: Record<string, SessionAnnotation>;
-  saveStates: Record<string, SaveState>;
-  inputRefs: React.MutableRefObject<Record<string, HTMLInputElement | null>>;
-  activeFilter: SessionFilter;
-  onFilterChange: (filter: SessionFilter) => void;
-  updateDraft: (sessionId: string, title: string) => void;
-  saveSession: (sessionId: string) => Promise<void>;
+  state: TimerState;
+  sessionName: string;
+  onSessionNameChange: (value: string) => void;
+  onStart: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onSkip: () => void;
 }) {
-  const [editingIds, setEditingIds] = useState<Set<string>>(new Set());
-
-  if (sessions.length === 0) {
-    return (
-      <Empty className="min-h-[360px]">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Clock3 />
-          </EmptyMedia>
-          <EmptyTitle>No work blocks</EmptyTitle>
-          <EmptyDescription>TomatoBar sessions will show up here after you run a work timer.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
-  function enterEdit(sessionId: string) {
-    setEditingIds((prev) => new Set(prev).add(sessionId));
-    setTimeout(() => {
-      const input = inputRefs.current[sessionId];
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    }, 0);
-  }
-
-  async function handleSave(sessionId: string) {
-    await saveSession(sessionId);
-    setEditingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(sessionId);
-      return next;
-    });
-  }
+  const color = state.status === "break" ? breakGreen : tomatoRed;
+  const isIdle = state.status === "idle";
+  const isWork = state.status === "work";
+  const isBreak = state.status === "break";
+  const primaryAction = isIdle ? onStart : state.isRunning ? onPause : onResume;
+  const primaryLabel = isIdle ? "Start" : state.isRunning ? "Pause" : "Resume";
+  const primaryIcon = isIdle || !state.isRunning ? <Play /> : <Pause />;
 
   return (
-    <motion.section
-      initial="hidden"
-      animate="show"
-      variants={{ hidden: {}, show: { transition: { staggerChildren: 0.035 } } }}
-      className="flex flex-col gap-3"
-    >
-      {sessions.map((session) => {
-        const draft = drafts[session.id] ?? { title: "" };
-        const saveState = saveStates[session.id] ?? "idle";
-        const wasLoadedWithTitle = session.title.trim().length > 0;
-        const isEditing = editingIds.has(session.id);
-        const shouldShowInput = !wasLoadedWithTitle || isEditing;
+    <div className="flex flex-col items-center gap-5 px-4 py-6">
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <Badge variant={isWork ? "default" : isBreak ? "secondary" : "outline"}>
+            {isWork ? "Focus" : isBreak ? "Break" : "Ready"}
+          </Badge>
+          {state.workIntervalsInSet > 0 && (
+            <span>
+              Set {Math.min(state.intervalCount + (isWork ? 1 : 0), state.workIntervalsInSet)} / {state.workIntervalsInSet}
+            </span>
+          )}
+        </div>
+      </div>
 
-        const displayTitle =
-          saveState === "saved" || saveState === "saving" || saveState === "dirty"
-            ? draft.title
-            : session.title;
+      <CircularProgress
+        total={state.totalSeconds}
+        remaining={state.remainingSeconds}
+        color={color}
+        isRunning={state.isRunning}
+      >
+        <div className="flex flex-col items-center gap-0.5">
+          <span className="font-heading text-6xl font-semibold tracking-tight" style={{ color }}>
+            {formatClock(state.remainingSeconds)}
+          </span>
+          <span className="text-sm text-muted-foreground">
+            {isIdle ? "Start when ready" : state.isRunning ? "Running" : "Paused"}
+          </span>
+        </div>
+      </CircularProgress>
 
-        return (
-          <motion.div
-            key={session.id}
-            variants={{
-              hidden: { opacity: 0, y: 8 },
-              show: { opacity: 1, y: 0 }
-            }}
-            transition={{ duration: 0.18 }}
-          >
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <span>
-                    {formatRelativeTime(session.start)} ({formatDuration(session.durationSeconds)})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onFilterChange(activeFilter === session.result ? "all" : session.result)}
-                  >
-                    <Badge variant={session.result === "completed" ? "default" : "secondary"}>
-                      {session.result === "completed" ? "Done" : "Stopped"}
-                    </Badge>
-                  </button>
-                </CardTitle>
-                <CardAction>
-                  {shouldShowInput ? (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className={iconButtonClass}
-                      disabled={saveState === "saving"}
-                      onClick={() => void handleSave(session.id)}
-                      title="Save title"
-                    >
-                      <Save data-icon="inline-start" />
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className={iconButtonClass}
-                      onClick={() => enterEdit(session.id)}
-                      title="Edit title"
-                    >
-                      <Pencil data-icon="inline-start" />
-                    </Button>
-                  )}
-                </CardAction>
-              </CardHeader>
+      <FieldGroup className="w-full gap-3">
+        <Field>
+          <FieldTitle>Session name</FieldTitle>
+          <Input
+            value={sessionName}
+            onChange={(event) => onSessionNameChange(event.target.value)}
+            placeholder="What are you focusing on?"
+            className="h-10 text-center"
+            disabled={!isIdle}
+          />
+        </Field>
+      </FieldGroup>
 
-              <CardContent className="-mt-2">
-                {shouldShowInput ? (
-                  <FieldGroup>
-                    <Field>
-                      <Input
-                        id={`title-${session.id}`}
-                        ref={(element) => {
-                          inputRefs.current[session.id] = element;
-                        }}
-                        value={draft.title}
-                        placeholder="What did this block move?"
-                        className="border-transparent bg-card px-0 text-base shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-card"
-                        onChange={(event) => updateDraft(session.id, event.target.value)}
-                      />
-                    </Field>
-                  </FieldGroup>
-                ) : (
-                  <p
-                    className="cursor-text px-0 text-base font-medium text-foreground"
-                    onClick={() => enterEdit(session.id)}
-                  >
-                    {displayTitle}
-                  </p>
-                )}
-              </CardContent>
-
-              <CardFooter className="justify-between gap-2">
-                <span
-                  className="truncate text-xs text-muted-foreground"
-                  title={timeFormatter.format(new Date(session.start * 1000))}
-                >
-                  {compactStartFormatter.format(new Date(session.start * 1000))}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {saveState === "saving"
-                    ? "Saving"
-                    : saveState === "saved"
-                      ? "Saved"
-                      : saveState === "error"
-                        ? "Retry"
-                        : ""}
-                </span>
-              </CardFooter>
-            </Card>
-          </motion.div>
-        );
-      })}
-    </motion.section>
+      <div className="grid w-full grid-cols-3 gap-2">
+        <Button type="button" variant="outline" size="lg" className="h-12" onClick={onStop} disabled={isIdle}>
+          <RotateCcw />
+          Reset
+        </Button>
+        <Button
+          type="button"
+          size="lg"
+          className={cn("h-12", isIdle ? "bg-[#e54b4b] hover:bg-[#d43d3d] text-white" : "")}
+          onClick={primaryAction}
+        >
+          {primaryIcon}
+          {primaryLabel}
+        </Button>
+        <Button type="button" variant="outline" size="lg" className="h-12" onClick={onSkip} disabled={isIdle}>
+          <SkipForward />
+          Skip
+        </Button>
+      </div>
+    </div>
   );
 }
 
-function FilterBadges({
-  activeFilter,
-  completedCount,
-  stoppedCount,
-  totalCount,
-  onChange
+function DashboardView({
+  state,
+  dashboard,
+  onRefresh
 }: {
-  activeFilter: SessionFilter;
-  completedCount: number;
-  stoppedCount: number;
-  totalCount: number;
-  onChange: (filter: SessionFilter) => void;
+  state: TimerState;
+  dashboard: DashboardData | null;
+  onRefresh: () => Promise<void>;
 }) {
-  const filters: Array<{ id: SessionFilter; label: string; count: number }> = [
-    { id: "all", label: "All", count: totalCount },
-    { id: "completed", label: "Done", count: completedCount },
-    { id: "stopped", label: "Stopped", count: stoppedCount }
-  ];
+  useEffect(() => {
+    void onRefresh();
+  }, []);
+
+  const data = dashboard;
 
   return (
-    <div className="flex flex-wrap justify-center gap-1 pb-0">
-      {filters.map((filter) => (
-        <button type="button" key={filter.id} onClick={() => onChange(filter.id)}>
-          <Badge variant={activeFilter === filter.id ? "default" : "secondary"}>
-            {filter.label} {filter.count}
-          </Badge>
-        </button>
-      ))}
+    <div className="flex flex-col gap-3 px-3 py-3">
+      <section className="grid grid-cols-2 gap-2" aria-label="Pomodoro summary">
+        <Metric icon={<CheckCircle2 className="text-[#e54b4b]" />} label="Today done" value={`${data?.todayCompleted ?? 0}`} />
+        <Metric icon={<Clock3 className="text-[#e54b4b]" />} label="Today focus" value={formatDuration(data?.todayFocusSeconds ?? 0)} />
+        <Metric icon={<CheckCircle2 />} label="Total done" value={`${data?.totalCompleted ?? 0}`} />
+        <Metric icon={<Clock3 />} label="Total focus" value={formatDuration(data?.totalFocusSeconds ?? 0)} />
+      </section>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Current session</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Status</span>
+              <Badge variant={state.status === "work" ? "default" : state.status === "break" ? "secondary" : "outline"}>
+                {state.status === "work" ? "Focusing" : state.status === "break" ? "On break" : "Idle"}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Remaining</span>
+              <span className="font-medium">{formatClock(state.remainingSeconds)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Work interval</span>
+              <span className="font-medium">
+                {Math.min(state.intervalCount + (state.status === "work" ? 1 : 0), state.workIntervalsInSet)} / {state.workIntervalsInSet}
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent sessions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data?.recentSessions && data.recentSessions.length > 0 ? (
+            <div className="flex flex-col gap-2">
+              {data.recentSessions.slice(0, 6).map((session) => (
+                <SessionRow key={session.id} session={session} />
+              ))}
+            </div>
+          ) : (
+            <Empty className="min-h-[160px]">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Clock3 />
+                </EmptyMedia>
+                <EmptyTitle>No sessions yet</EmptyTitle>
+                <EmptyDescription>Start a focus timer to see your work blocks here.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SessionRow({ session }: { session: WorkSession }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border p-2.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate text-sm font-medium">
+          {session.title.trim() || "Untitled session"}
+        </span>
+        <span className="truncate text-xs text-muted-foreground">
+          {formatRelativeTime(session.start)} · {compactTimeFormatter.format(new Date(session.start * 1000))}
+        </span>
+      </div>
+      <div className="flex shrink-0 flex-col items-end gap-0.5">
+        <Badge variant={session.result === "completed" ? "default" : "secondary"}>
+          {session.result === "completed" ? "Done" : "Stopped"}
+        </Badge>
+        <span className="text-xs text-muted-foreground">{formatDuration(session.durationSeconds)}</span>
+      </div>
+    </div>
+  );
+}
+
+function HistoryView() {
+  const [sessions, setSessions] = useState<WorkSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "completed" | "stopped">("all");
+
+  useEffect(() => {
+    async function load() {
+      const data = await window.pomodoro.getDashboard();
+      setSessions(data.recentSessions);
+      setLoading(false);
+    }
+    void load();
+  }, []);
+
+  const filtered = sessions.filter((s) => filter === "all" || s.result === filter);
+
+  return (
+    <div className="flex flex-col gap-3 px-3 py-3">
+      <div className="flex flex-wrap gap-1">
+        {(["all", "completed", "stopped"] as const).map((f) => (
+          <button type="button" key={f} onClick={() => setFilter(f)}>
+            <Badge variant={filter === f ? "default" : "secondary"}>{f[0].toUpperCase() + f.slice(1)}</Badge>
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <Empty className="min-h-[360px]">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <History />
+            </EmptyMedia>
+            <EmptyTitle>No sessions found</EmptyTitle>
+            <EmptyDescription>Completed and stopped focus blocks show up here.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {filtered.map((session) => (
+            <SessionRow key={session.id} session={session} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsView({
+  settings,
+  onChange
+}: {
+  settings: TimerSettings;
+  onChange: (settings: TimerSettings) => void;
+}) {
+  const [workMinutes, setWorkMinutes] = useState(String(Math.floor(settings.workDuration / 60)));
+  const [breakMinutes, setBreakMinutes] = useState(String(Math.floor(settings.breakDuration / 60)));
+  const [intervals, setIntervals] = useState(String(settings.workIntervalsInSet));
+  const [stopAfterBreak, setStopAfterBreak] = useState(settings.stopAfterBreak);
+
+  return (
+    <div className="flex flex-col gap-4 px-3 py-3">
+      <Card>
+        <CardHeader>
+          <CardTitle>Timer settings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FieldGroup>
+            <Field orientation="horizontal">
+              <FieldLabel>
+                <FieldTitle>Work interval</FieldTitle>
+              </FieldLabel>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={180}
+                  value={workMinutes}
+                  onChange={(event) => setWorkMinutes(event.target.value)}
+                  onBlur={() =>
+                    onChange({
+                      workDuration: Math.max(1, Math.min(180, Number(workMinutes) || 25)) * 60,
+                      breakDuration: Math.max(1, Math.min(60, Number(breakMinutes) || 5)) * 60,
+                      workIntervalsInSet: Math.max(1, Math.min(50, Number(intervals) || 4)),
+                      stopAfterBreak
+                    })
+                  }
+                  className="w-20 text-right"
+                />
+                <span className="text-sm text-muted-foreground">min</span>
+              </div>
+            </Field>
+            <Field orientation="horizontal">
+              <FieldLabel>
+                <FieldTitle>Break interval</FieldTitle>
+              </FieldLabel>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={breakMinutes}
+                  onChange={(event) => setBreakMinutes(event.target.value)}
+                  onBlur={() =>
+                    onChange({
+                      workDuration: Math.max(1, Math.min(180, Number(workMinutes) || 25)) * 60,
+                      breakDuration: Math.max(1, Math.min(60, Number(breakMinutes) || 5)) * 60,
+                      workIntervalsInSet: Math.max(1, Math.min(50, Number(intervals) || 4)),
+                      stopAfterBreak
+                    })
+                  }
+                  className="w-20 text-right"
+                />
+                <span className="text-sm text-muted-foreground">min</span>
+              </div>
+            </Field>
+            <Field orientation="horizontal">
+              <FieldLabel>
+                <FieldTitle>Intervals in a set</FieldTitle>
+              </FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                value={intervals}
+                onChange={(event) => setIntervals(event.target.value)}
+                onBlur={() =>
+                  onChange({
+                    workDuration: Math.max(1, Math.min(180, Number(workMinutes) || 25)) * 60,
+                    breakDuration: Math.max(1, Math.min(60, Number(breakMinutes) || 5)) * 60,
+                    workIntervalsInSet: Math.max(1, Math.min(50, Number(intervals) || 4)),
+                    stopAfterBreak
+                  })
+                }
+                className="w-20 text-right"
+              />
+            </Field>
+            <Field orientation="horizontal">
+              <FieldLabel>
+                <FieldTitle>Stop after break</FieldTitle>
+              </FieldLabel>
+              <Switch
+                checked={stopAfterBreak}
+                onCheckedChange={(checked) => {
+                  setStopAfterBreak(checked);
+                  onChange({
+                    workDuration: Math.max(1, Math.min(180, Number(workMinutes) || 25)) * 60,
+                    breakDuration: Math.max(1, Math.min(60, Number(breakMinutes) || 5)) * 60,
+                    workIntervalsInSet: Math.max(1, Math.min(50, Number(intervals) || 4)),
+                    stopAfterBreak: checked
+                  });
+                }}
+              />
+            </Field>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+
+      <p className="px-1 text-xs text-muted-foreground">
+        Changes apply to the next timer cycle.
+      </p>
     </div>
   );
 }
@@ -574,7 +697,9 @@ function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; 
   return (
     <Card size="sm">
       <CardContent className="flex items-center gap-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&_svg]:size-4">{icon}</div>
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&_svg]:size-4">
+          {icon}
+        </div>
         <div className="min-w-0">
           <p className="truncate text-xs text-muted-foreground">{label}</p>
           <p className="truncate text-lg font-semibold">{value}</p>
