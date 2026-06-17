@@ -151,6 +151,7 @@ export default function App() {
   const [sessionName, setSessionName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [burst, setBurst] = useState<{ x: number; y: number; color: string; size: number; target: "light" | "dark" } | null>(null);
 
   async function loadInitial() {
     try {
@@ -203,13 +204,20 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [state, sessionName]);
 
-  function toggleTheme() {
-    setTheme((current) => {
-      const next = current === "dark" ? "light" : "dark";
-      window.localStorage.setItem("pomodoro-theme", next);
-      document.documentElement.classList.toggle("dark", next === "dark");
-      return next;
-    });
+  function startThemeTransition(event: React.MouseEvent<HTMLButtonElement>) {
+    const target = theme === "dark" ? "light" : "dark";
+    const color = target === "dark" ? "oklch(0.145 0 0)" : "oklch(1 0 0)";
+    const size = Math.hypot(window.innerWidth, window.innerHeight) * 2.5;
+    setBurst({ x: event.clientX, y: event.clientY, color, size, target });
+  }
+
+  function finishThemeTransition() {
+    if (!burst) return;
+    const next = burst.target;
+    window.localStorage.setItem("pomodoro-theme", next);
+    document.documentElement.classList.toggle("dark", next === "dark");
+    setTheme(next);
+    setBurst(null);
   }
 
   async function handleStart() {
@@ -283,7 +291,7 @@ export default function App() {
             size="icon"
             variant="ghost"
             className={iconButtonClass}
-            onClick={toggleTheme}
+            onClick={startThemeTransition}
             title="Toggle theme"
           >
             {theme === "dark" ? <Sun data-icon="inline-start" /> : <Moon data-icon="inline-start" />}
@@ -326,6 +334,23 @@ export default function App() {
           </section>
         </motion.div>
       </div>
+      {burst && (
+        <motion.div
+          aria-hidden
+          className="pointer-events-none fixed z-50 rounded-full"
+          initial={{ width: 0, height: 0 }}
+          animate={{ width: burst.size, height: burst.size }}
+          onAnimationComplete={finishThemeTransition}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          style={{
+            left: burst.x,
+            top: burst.y,
+            backgroundColor: burst.color,
+            x: "-50%",
+            y: "-50%"
+          }}
+        />
+      )}
     </main>
   );
 }
